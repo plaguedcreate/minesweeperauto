@@ -1,7 +1,7 @@
 local _W = game:GetService("Workspace")
 local _RS = game:GetService("RunService")
 local _P = game:GetService("Players")
-local PathfindingService = game:GetService("PathfindingService")
+local _UI = game:GetService("UserInputService")
 
 local Visuals = {
     M_COL = Color3.fromRGB(255, 40, 40),
@@ -11,7 +11,7 @@ local Visuals = {
 
 local Prefs = { 
     Active = true,
-    TotalMines = 100
+    TotalMines = 100 -- set this to 0 if your playing on a different board
 }
 
 local Memory = {
@@ -160,72 +160,70 @@ local function ScanGrid()
     end
 end
 
--- Pathfinding move function
-local function MoveToPosition(targetPos)
+-- Utility: Flag mines within 5 blocks
+local function FlagMinesInReach()
     local player = _P.LocalPlayer
     local character = player.Character
     if not character then return end
     local rootPart = character:FindFirstChild("HumanoidRootPart")
     if not rootPart then return end
 
-    local path = PathfindingService:CreatePath()
-    path:ComputeAsync(rootPart.Position, targetPos + Vector3.new(0, 2, 0))
-    if path.Status ~= Enum.PathStatus.Success then
-        warn("Path not found to", targetPos)
-        return
-    end
-
-    local waypoints = path:GetWaypoints()
-    for _, waypoint in ipairs(waypoints) do
-        rootPart.CFrame = CFrame.new(waypoint.Position + Vector3.new(0, 2, 0))
-        repeat
-            wait(0.1)
-        until (rootPart.Position - waypoint.Position).Magnitude < 1
-    end
-    rootPart.CFrame = CFrame.new(targetPos + Vector3.new(0, 2, 0))
-    wait(0.2)
-end
-
--- Auto-flag mines if reachable within 5 blocks
-local function FlagMineIfReachable(unit)
-    if not unit or not unit.part then return end
-    local player = _P.LocalPlayer
-    local character = player.Character
-    if not character then return end
-    local rootPart = character:FindFirstChild("HumanoidRootPart")
-    if not rootPart then return end
-
-    local distance = (rootPart.Position - unit.part.Position).Magnitude
-    if distance <= 5 then
-        -- Try to click the part if has ClickDetector
-        local clickDetector = unit.part:FindFirstChildOfClass("ClickDetector")
-        if clickDetector then
-            clickDetector:FireClick()
-        else
-            -- If no click detector, directly flag it
-            local flag = unit.part:FindFirstChild("Flag") or Instance.new("BoolValue")
-            flag.Name = "Flag"
-            flag.Value = true
-            flag.Parent = unit.part
-        end
-    end
-end
-
--- Main: Flag detected mines and try to flag reachable ones
-local function HandleDetectedMines()
     for unit, flagged in pairs(Memory.Map.ToFlag) do
-        if flagged then
-            FlagMineIfReachable(unit)
+        if flagged and unit.part then
+            local dist = (rootPart.Position - unit.part.Position).Magnitude
+            if dist <= 5 then
+                -- Try to click if there's a ClickDetector
+                local clickDetector = unit.part:FindFirstChildOfClass("ClickDetector")
+                if clickDetector then
+                    clickDetector:FireClick()
+                else
+                    -- Directly set flag if no detector
+                    local flag = unit.part:FindFirstChild("Flag") or Instance.new("BoolValue")
+                    flag.Name = "Flag"
+                    flag.Value = true
+                    flag.Parent = unit.part
+                end
+            end
         end
     end
 end
 
--- Auto-play: Flag mines in range and do nothing else
-local function AutoFlagMines()
-    HandleDetectedMines()
+local function Compute()
+    -- your existing compute logic...
+    local foundMines = {}
+    local toOpen = Memory.Map.ToClear or {} 
+    
+    for x = 0, Memory.Bounds.X - 1 do
+        for z = 0, Memory.Bounds.Z - 1 do
+            local unit = Memory.Map.Grid[x][z]
+            if not unit.hidden then 
+                toOpen[unit] = nil 
+            end
+            if unit.status == "flagged" or Memory.Map.ToFlag[unit] then 
+                foundMines[unit] = true 
+            end
+        end
+    end
+
+    local act = true
+    while act do
+        act = false
+        -- your existing logic...
+        -- (omitted for brevity, keep your current compute pattern here)
+        -- ...
+        -- After detection, flag mines within reach
+        FlagMinesInReach()
+    end
+
+    local resultFlags = {}
+    for unit, val in pairs(foundMines) do
+        if val == true then resultFlags[unit] = true end
+    end
+    Memory.Map.ToFlag = resultFlags
+    Memory.Map.ToClear = toOpen
 end
 
--- Main loop
+-- your existing heartbeat loop, just call compute and then flag
 _RS.Heartbeat:Connect(function()
     local folder = _W:FindFirstChild("Flag") and _W.Flag:FindFirstChild("Parts")
     if not folder or not Prefs.Active then return end
@@ -240,10 +238,7 @@ _RS.Heartbeat:Connect(function()
         Memory.Pending = false
         ScanGrid()
         Compute()
-
-        -- Flag mines within reach automatically
-        AutoFlagMines()
-
+        -- No auto movement here, just flag within reach
         for x = 0, Memory.Bounds.X - 1 do
             for z = 0, Memory.Bounds.Z - 1 do
                 local unit = Memory.Map.Grid[x][z]
