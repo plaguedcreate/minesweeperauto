@@ -178,47 +178,51 @@ local function MoveToPosition(targetPos)
     local waypoints = path:GetWaypoints()
     for _, waypoint in ipairs(waypoints) do
         rootPart.CFrame = CFrame.new(waypoint.Position + Vector3.new(0, 2, 0))
-        -- Wait until the character reaches the waypoint
         repeat
             wait(0.1)
         until (rootPart.Position - waypoint.Position).Magnitude < 1
     end
-    -- Final correction
     rootPart.CFrame = CFrame.new(targetPos + Vector3.new(0, 2, 0))
     wait(0.2)
 end
 
--- Auto-play: flag mines and walk to safe cells
-local function AutoPlay()
+-- Auto-flag mines if reachable within 5 blocks
+local function FlagMineIfReachable(unit)
+    if not unit or not unit.part then return end
     local player = _P.LocalPlayer
     local character = player.Character
     if not character then return end
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
     local rootPart = character:FindFirstChild("HumanoidRootPart")
-    if not humanoid or not rootPart then return end
+    if not rootPart then return end
 
-    -- Flag all detected mines
-    for unit, flagged in pairs(Memory.Map.ToFlag) do
-        if flagged and unit.part then
+    local distance = (rootPart.Position - unit.part.Position).Magnitude
+    if distance <= 5 then
+        -- Try to click the part if has ClickDetector
+        local clickDetector = unit.part:FindFirstChildOfClass("ClickDetector")
+        if clickDetector then
+            clickDetector:FireClick()
+        else
+            -- If no click detector, directly flag it
             local flag = unit.part:FindFirstChild("Flag") or Instance.new("BoolValue")
             flag.Name = "Flag"
             flag.Value = true
             flag.Parent = unit.part
         end
     end
+end
 
-    -- Walk onto each safe cell
-    for x = 0, Memory.Bounds.X - 1 do
-        for z = 0, Memory.Bounds.Z - 1 do
-            local unit = Memory.Map.Grid[x][z]
-            if unit.status == "number" and not Memory.Map.ToFlag[unit] and not Memory.Map.ToClear[unit] then
-                if unit.part then
-                    MoveToPosition(unit.pos)
-                    wait(0.2)
-                end
-            end
+-- Main: Flag detected mines and try to flag reachable ones
+local function HandleDetectedMines()
+    for unit, flagged in pairs(Memory.Map.ToFlag) do
+        if flagged then
+            FlagMineIfReachable(unit)
         end
     end
+end
+
+-- Auto-play: Flag mines in range and do nothing else
+local function AutoFlagMines()
+    HandleDetectedMines()
 end
 
 -- Main loop
@@ -237,8 +241,8 @@ _RS.Heartbeat:Connect(function()
         ScanGrid()
         Compute()
 
-        -- Run auto-solving: flag mines and walk on safe cells
-        AutoPlay()
+        -- Flag mines within reach automatically
+        AutoFlagMines()
 
         for x = 0, Memory.Bounds.X - 1 do
             for z = 0, Memory.Bounds.Z - 1 do
