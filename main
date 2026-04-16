@@ -1,7 +1,7 @@
 local _W = game:GetService("Workspace")
 local _RS = game:GetService("RunService")
 local _P = game:GetService("Players")
-local _UI = game:GetService("UserInputService")
+local PathfindingService = game:GetService("PathfindingService")
 
 local Visuals = {
     M_COL = Color3.fromRGB(255, 40, 40),
@@ -11,7 +11,7 @@ local Visuals = {
 
 local Prefs = { 
     Active = true,
-    TotalMines = 100 -- set this to 0 if your playing on a different board
+    TotalMines = 100
 }
 
 local Memory = {
@@ -160,54 +160,35 @@ local function ScanGrid()
     end
 end
 
--- Pattern evaluation functions omitted for brevity (same as before)...
-
--- Main compute function omitted for brevity (same as before)...
-
--- New: Function to simulate key presses
-local function SimulateKeyPress(key, duration)
-    _UI:SetKeyDown(key)
-    wait(duration)
-    _UI:SetKeyUp(key)
-end
-
--- Function to move character smoothly to target position
+-- Pathfinding move function
 local function MoveToPosition(targetPos)
-    local character = _P.LocalPlayer.Character
-    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+    local player = _P.LocalPlayer
+    local character = player.Character
+    if not character then return end
+    local rootPart = character:FindFirstChild("HumanoidRootPart")
     if not rootPart then return end
 
-    local currentPos = rootPart.Position
-    local direction = (targetPos - currentPos)
-    local distance = direction.Magnitude
-    local steps = math.ceil(distance / 4)
-    local stepVector = direction / steps
+    local path = PathfindingService:CreatePath()
+    path:ComputeAsync(rootPart.Position, targetPos + Vector3.new(0, 2, 0))
+    if path.Status ~= Enum.PathStatus.Success then
+        warn("Path not found to", targetPos)
+        return
+    end
 
-    for i = 1, steps do
-        local delta = stepVector
-        local moveDir = delta.Unit
-        -- Simulate key presses based on moveDir
-        if math.abs(moveDir.X) > math.abs(moveDir.Z) then
-            if moveDir.X > 0 then
-                SimulateKeyPress(Enum.UserInputType.Keyboard.w, 0.1)
-            elseif moveDir.X < 0 then
-                SimulateKeyPress(Enum.UserInputType.Keyboard.s, 0.1)
-            end
-        else
-            if moveDir.Z > 0 then
-                SimulateKeyPress(Enum.UserInputType.Keyboard.d, 0.1)
-            elseif moveDir.Z < 0 then
-                SimulateKeyPress(Enum.UserInputType.Keyboard.a, 0.1)
-            end
-        end
-        rootPart.CFrame = CFrame.new(rootPart.Position + delta)
-        wait(0.2)
+    local waypoints = path:GetWaypoints()
+    for _, waypoint in ipairs(waypoints) do
+        rootPart.CFrame = CFrame.new(waypoint.Position + Vector3.new(0, 2, 0))
+        -- Wait until the character reaches the waypoint
+        repeat
+            wait(0.1)
+        until (rootPart.Position - waypoint.Position).Magnitude < 1
     end
     -- Final correction
-    rootPart.CFrame = CFrame.new(targetPos + Vector3.new(0, 3, 0))
+    rootPart.CFrame = CFrame.new(targetPos + Vector3.new(0, 2, 0))
+    wait(0.2)
 end
 
--- AutoPlay: Flag mines and walk on safe cells
+-- Auto-play: flag mines and walk to safe cells
 local function AutoPlay()
     local player = _P.LocalPlayer
     local character = player.Character
@@ -240,7 +221,7 @@ local function AutoPlay()
     end
 end
 
--- Main loop with auto-solving and auto-walking
+-- Main loop
 _RS.Heartbeat:Connect(function()
     local folder = _W:FindFirstChild("Flag") and _W.Flag:FindFirstChild("Parts")
     if not folder or not Prefs.Active then return end
@@ -256,7 +237,7 @@ _RS.Heartbeat:Connect(function()
         ScanGrid()
         Compute()
 
-        -- Auto-solve: flag mines and walk on safe cells
+        -- Run auto-solving: flag mines and walk on safe cells
         AutoPlay()
 
         for x = 0, Memory.Bounds.X - 1 do
